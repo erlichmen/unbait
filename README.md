@@ -102,6 +102,7 @@ Validation:
 
 ```bash
 node scripts/test-firefox-permissions.js
+node scripts/test-scan-errors.js
 node scripts/test-headline-language.js
 python3 scripts/build-firefox.py
 node scripts/test-firefox-background.js

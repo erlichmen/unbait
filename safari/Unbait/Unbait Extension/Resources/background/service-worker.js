@@ -334,9 +334,9 @@ function triggerDeclickbait(tabId) {
     if (isYouTube) {
       chrome.scripting.executeScript({
         target: { tabId },
-        files: ["content/shared.js", "content/youtube.js"],
+        files: ["/content/shared.js", "/content/youtube.js"],
       }).then(() => {
-        chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+        chrome.scripting.insertCSS({ target: { tabId }, files: ["/content/content.css"] });
         setTimeout(() => {
           chrome.tabs.sendMessage(tabId, { action: "de-clickbait-youtube" }).catch(() => {});
         }, CONFIG.AUTO_TRIGGER_DELAY_MS);
@@ -344,9 +344,9 @@ function triggerDeclickbait(tabId) {
     } else {
       chrome.scripting.executeScript({
         target: { tabId },
-        files: ["content/shared.js", "content/html-utils.js", "content/content.js"],
+        files: ["/content/shared.js", "/content/html-utils.js", "/content/content.js"],
       }).then(() => {
-        chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+        chrome.scripting.insertCSS({ target: { tabId }, files: ["/content/content.css"] });
         setTimeout(() => {
           chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
         }, CONFIG.AUTO_TRIGGER_DELAY_MS);
@@ -360,9 +360,9 @@ function injectGistOnly(tabId) {
   if (!tabId) return;
   chrome.scripting.executeScript({
     target: { tabId },
-    files: ["content/shared.js", "content/gist-only.js"],
+    files: ["/content/shared.js", "/content/gist-only.js"],
   }).then(() => {
-    chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+    chrome.scripting.insertCSS({ target: { tabId }, files: ["/content/content.css"] });
   }).catch(() => {});
 }
 
@@ -604,9 +604,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       if (explicitMode === "full" || sponsorOn) {
         chrome.scripting.executeScript({
           target: { tabId },
-          files: ["content/shared.js", "content/youtube.js"],
+          files: ["/content/shared.js", "/content/youtube.js"],
         }).then(() => {
-          chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+          chrome.scripting.insertCSS({ target: { tabId }, files: ["/content/content.css"] });
           if (explicitMode === "full") {
             setTimeout(() => {
               chrome.tabs.sendMessage(tabId, { action: "de-clickbait-youtube" }).catch(() => {});
@@ -621,9 +621,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (explicitMode === "full") {
       chrome.scripting.executeScript({
         target: { tabId },
-        files: ["content/shared.js", "content/html-utils.js", "content/content.js"],
+        files: ["/content/shared.js", "/content/html-utils.js", "/content/content.js"],
       }).then(() => {
-        chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+        chrome.scripting.insertCSS({ target: { tabId }, files: ["/content/content.css"] });
         setTimeout(() => {
           chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
         }, CONFIG.AUTO_TRIGGER_DELAY_MS);
@@ -658,9 +658,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       if (hasCached) {
         chrome.scripting.executeScript({
           target: { tabId },
-          files: ["content/shared.js", "content/html-utils.js", "content/content.js"],
+          files: ["/content/shared.js", "/content/html-utils.js", "/content/content.js"],
         }).then(() => {
-          chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+          chrome.scripting.insertCSS({ target: { tabId }, files: ["/content/content.css"] });
         }).catch(() => {});
       }
     } catch { /* ignore cache check errors */ }

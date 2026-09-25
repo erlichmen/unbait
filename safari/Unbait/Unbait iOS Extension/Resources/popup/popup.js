@@ -844,12 +844,12 @@ btnDeclickbait.addEventListener("click", async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error("No active tab is available.");
     const isYouTube = YT_HOSTS.includes(_currentHostname);
-    const scriptFile = isYouTube ? "content/youtube.js" : "content/content.js";
-    const extraFiles = isYouTube ? [] : ["content/html-utils.js"];
+    const scriptFile = isYouTube ? "/content/youtube.js" : "/content/content.js";
+    const extraFiles = isYouTube ? [] : ["/content/html-utils.js"];
     step = "Load page scripts";
     const injections = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      files: ["content/shared.js", ...extraFiles, scriptFile],
+      files: ["/content/shared.js", ...extraFiles, scriptFile],
     });
     // Firefox may resolve with a per-frame error instead of rejecting.
     for (const injection of injections) {
@@ -858,7 +858,7 @@ btnDeclickbait.addEventListener("click", async () => {
     step = "Load page styles";
     await chrome.scripting.insertCSS({
       target: { tabId: tab.id },
-      files: ["content/content.css"],
+      files: ["/content/content.css"],
     });
 
     if (isYouTube) await new Promise((r) => setTimeout(r, 100));

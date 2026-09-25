@@ -34,7 +34,9 @@ Open a [GitHub Issue](https://github.com/jorgvreeswijk/Clickbeet/issues) with th
 
 Run `node scripts/test-firefox-permissions.js` for the permission-flow regression
 check and `node scripts/test-headline-language.js` for page-language transport
-and prompt-selection checks (no live AI calls). Build with `python3 scripts/build-firefox.py`, run
+and prompt-selection checks (no live AI calls). Run `node scripts/test-scan-errors.js`
+to check popup-relative path resolution and scan error handling.
+Build with `python3 scripts/build-firefox.py`, run
 `node scripts/test-firefox-background.js` for the event-page/service-worker boot
 check, then validate the package
 with `npx --yes web-ext@9.4.0 lint --source-dir dist/firefox`. Before submitting a PR:
