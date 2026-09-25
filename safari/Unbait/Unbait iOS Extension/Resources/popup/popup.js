@@ -826,26 +826,36 @@ btnDeclickbait.addEventListener("click", async () => {
   btnDeclickbait.classList.add("processing");
   btnDeclickbait.textContent = "Working...";
   const _startTime = Date.now();
+  let step = "Find active page";
+  let pollInterval;
+  let timeoutId;
+  const reportError = (err) => {
+    clearInterval(pollInterval);
+    clearTimeout(timeoutId);
+    console.error(`[Unbait] ${step} failed:`, err);
+    statusEl.textContent = `${step} failed: ${err?.message || String(err)}`;
+    statusEl.className = "status-msg error";
+    btnDeclickbait.disabled = false;
+    btnDeclickbait.classList.remove("processing");
+    updateDeclickbaitButton();
+  };
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("No active tab is available.");
     const isYouTube = YT_HOSTS.includes(_currentHostname);
     const scriptFile = isYouTube ? "content/youtube.js" : "content/content.js";
     const extraFiles = isYouTube ? [] : ["content/html-utils.js"];
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["content/shared.js", ...extraFiles, scriptFile],
-      });
-    } catch (injectErr) {
-      console.error("[Unbait] Script injection failed:", injectErr);
-      statusEl.textContent = `Injection failed: ${injectErr.message}`;
-      statusEl.className = "status-msg error";
-      btnDeclickbait.disabled = false;
-      btnDeclickbait.classList.remove("processing");
-      updateDeclickbaitButton();
-      return;
+    step = "Load page scripts";
+    const injections = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content/shared.js", ...extraFiles, scriptFile],
+    });
+    // Firefox may resolve with a per-frame error instead of rejecting.
+    for (const injection of injections) {
+      if (injection.error) throw new Error(injection.error.message || String(injection.error));
     }
+    step = "Load page styles";
     await chrome.scripting.insertCSS({
       target: { tabId: tab.id },
       files: ["content/content.css"],
@@ -853,10 +863,13 @@ btnDeclickbait.addEventListener("click", async () => {
 
     if (isYouTube) await new Promise((r) => setTimeout(r, 100));
 
+    step = "Start page scan";
     const action = isYouTube ? "de-clickbait-youtube" : "de-clickbait";
-    chrome.tabs.sendMessage(tab.id, { action }).catch(() => {});
+    chrome.tabs.sendMessage(tab.id, { action }).then((response) => {
+      if (response?.error) reportError(new Error(response.error));
+    }).catch(reportError);
 
-    const pollInterval = setInterval(async () => {
+    pollInterval = setInterval(async () => {
       try {
         const status = await chrome.runtime.sendMessage({ action: "get-status", tabId: tab.id });
         if (!status) return;
@@ -890,7 +903,7 @@ btnDeclickbait.addEventListener("click", async () => {
       } catch { /* SW inactive */ }
     }, 500);
 
-    setTimeout(() => {
+    timeoutId = setTimeout(() => {
       clearInterval(pollInterval);
       btnDeclickbait.disabled = false;
       btnDeclickbait.classList.remove("processing");
@@ -898,13 +911,8 @@ btnDeclickbait.addEventListener("click", async () => {
     }, 120000);
     return;
   } catch (err) {
-    statusEl.textContent = "Cannot connect to page. Try refreshing.";
-    statusEl.className = "status-msg error";
+    reportError(err);
   }
-
-  btnDeclickbait.disabled = false;
-  btnDeclickbait.classList.remove("processing");
-  updateDeclickbaitButton();
 });
 
 // ---------------------------------------------------------------------------
