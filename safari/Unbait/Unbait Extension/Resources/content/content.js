@@ -470,7 +470,10 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
     try {
       response = await chrome.runtime.sendMessage({
         action: "rewrite-headlines",
-        headlines: uncachedData,
+        headlines: uncachedData.map((headline) => ({
+          ...headline,
+          pageLanguage: document.documentElement.lang,
+        })),
       });
     } catch (e) {
       _state.rewriteResolve = null;

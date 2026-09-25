@@ -102,6 +102,7 @@ Validation:
 
 ```bash
 node scripts/test-firefox-permissions.js
+node scripts/test-headline-language.js
 python3 scripts/build-firefox.py
 node scripts/test-firefox-background.js
 npx --yes web-ext@9.4.0 lint --source-dir dist/firefox
@@ -116,6 +117,13 @@ npx --yes web-ext@9.4.0 lint --source-dir dist/firefox
 
 Vanilla JavaScript, with no bundler or runtime dependencies. Firefox packaging
 uses Python's standard library; Mozilla's optional validator uses npm.
+
+With **Language → Same as content (auto)**, news headlines follow the page's
+declared language (`<html lang>`), falling back to the original headline when
+it is unavailable. YouTube titles retain the video's original title language.
+An explicit language selection overrides Auto. After upgrading from an older
+prompt, use **Clear title cache**, reload the page, and scan again to replace
+previously cached translations.
 
 ## How It Works
 
