@@ -1,5 +1,8 @@
 // Shared HTML extraction (decodeEntities, extractMetaDescription, extractJsonLd, extractContext)
-importScripts('../content/html-utils.js');
+// Firefox's event page loads this dependency first through background.scripts.
+if (typeof importScripts === "function") {
+  importScripts('../content/html-utils.js');
+}
 
 // Track active job status per tab
 const _tabStatus = new Map();

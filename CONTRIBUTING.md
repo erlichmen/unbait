@@ -6,7 +6,7 @@ Thanks for your interest in contributing! Unbait is a hobby project and every co
 
 Open a [GitHub Issue](https://github.com/jorgvreeswijk/Clickbeet/issues) and include:
 
-- **Browser** (Chrome, Safari, Brave, etc.) and version
+- **Browser** (Chrome, Firefox, Safari, Brave, etc.) and version
 - **AI provider** you're using (Claude, GPT, Gemini)
 - **URL** where the issue occurred (if applicable)
 - **What happened** vs. what you expected
@@ -32,12 +32,22 @@ Open a [GitHub Issue](https://github.com/jorgvreeswijk/Clickbeet/issues) with th
 
 ### Testing
 
-There's no automated test suite (yet). Before submitting a PR:
+Run `node scripts/test-firefox-permissions.js` for the permission-flow regression
+check. Build with `python3 scripts/build-firefox.py`, run
+`node scripts/test-firefox-background.js` for the event-page/service-worker boot
+check, then validate the package
+with `npx --yes web-ext@9.4.0 lint --source-dir dist/firefox`. Before submitting a PR:
 
 - Test in **Chrome** (load unpacked extension)
+- Test in **Firefox** (load `dist/firefox/manifest.json` through `about:debugging`)
+- In Firefox, check one-time scans, Full/Gist mode, manual site addition and
+  Always Gist; test both granting and denying the optional permission prompt
 - Test in **Safari** if possible
 - Try your changes on a few different news sites
 - If your changes touch YouTube functionality, test on YouTube too
+
+Edit shared JavaScript in `extension/`, rebuild Firefox, and run
+`bash scripts/sync-safari.sh` to update the Safari resource copies.
 
 ### A Note on YouTube
 

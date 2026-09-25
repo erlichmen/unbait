@@ -89,13 +89,12 @@ function originsForHostname(hostname) {
 
 async function requestSitePermission(hostname) {
   try {
-    const origins = originsForHostname(hostname);
-    let hasAllUrls = false;
-    try { hasAllUrls = await chrome.permissions.contains({ origins: ["<all_urls>"] }); } catch {}
-    if (!hasAllUrls) origins.push("<all_urls>");
+    // Request directly in the click handler: awaiting contains/storage first
+    // loses Firefox's user gesture. Already-granted permissions do not prompt.
+    const origins = [...originsForHostname(hostname), "<all_urls>"];
     return await chrome.permissions.request({ origins });
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -386,12 +385,13 @@ async function reloadCurrentTab() {
 
 async function setCurrentSiteMode(mode) {
   if (!_currentHostname) return;
+  if (mode !== "off" && !await requestSitePermission(_currentHostname)) return;
   const previous = await getSiteMode(_currentHostname);
   if (previous === mode) return;
 
   // Permission: needed when going from "off" to anything else.
   if (previous === "off" && mode !== "off") {
-    // Save the intent BEFORE the dialog (popup may close mid-prompt).
+    // Only enable the site after access has been granted.
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     chrome.runtime.sendMessage({
       action: "enable-site",
@@ -401,11 +401,6 @@ async function setCurrentSiteMode(mode) {
     }).catch(() => {});
     paintSiteMode(mode);
 
-    const granted = await requestSitePermission(_currentHostname);
-    if (!granted) {
-      chrome.runtime.sendMessage({ action: "disable-site", hostname: _currentHostname }).catch(() => {});
-      paintSiteMode("off");
-    }
     return;
   }
 
@@ -522,10 +517,9 @@ async function addSiteManually() {
     else if (input.includes("/")) input = new URL("https://" + input).hostname;
   } catch { /* keep as-is */ }
 
+  if (!await requestSitePermission(input)) return;
   const sites = await getAutoSites();
   if (!sites.some((s) => s.host === input)) {
-    const granted = await requestSitePermission(input);
-    if (!granted) return;
     sites.push({ host: input, mode: "full" });
     await saveAutoSites(sites);
   }
@@ -604,16 +598,14 @@ alwaysGistToggle.addEventListener("change", async () => {
     // <all_urls> is needed for both content script registration and fetching
     // article bodies for summaries.
     try {
-      const has = await chrome.permissions.contains({ origins: ["<all_urls>"] });
-      if (!has) {
-        const granted = await chrome.permissions.request({ origins: ["<all_urls>"] });
-        if (!granted) {
-          alwaysGistToggle.checked = false;
-          return;
-        }
+      const granted = await chrome.permissions.request({ origins: ["<all_urls>"] });
+      if (!granted) {
+        alwaysGistToggle.checked = false;
+        return;
       }
     } catch {
-      // Safari / no support for optional <all_urls> — proceed.
+      alwaysGistToggle.checked = false;
+      return;
     }
   }
   await chrome.storage.local.set({ alwaysGist: enabled });
