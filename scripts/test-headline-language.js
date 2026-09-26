@@ -17,7 +17,7 @@ async function check() {
   let message;
   const headline = { id: "headline-0", text: "This new Mac feature changes everything", context: "German context must not select the output language." };
   const sendContext = vm.createContext({
-    console,
+    console, clearTimeout,
     document: { documentElement: { lang: "en-US" } },
     _state: { elements: new Map() },
     chrome: { runtime: { sendMessage: async value => { message = value; return { error: "test stop" }; } } },

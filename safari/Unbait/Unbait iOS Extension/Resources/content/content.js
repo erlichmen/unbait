@@ -107,7 +107,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message.action === "rewrite-complete") {
     // Final results from service worker (Safari-compatible path)
-    _state.isProcessing = false;
     const result = message.result;
     if (result && result.results) {
       for (const r of result.results) {
@@ -117,7 +116,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // Resolve the pending promise if any
     if (_state.rewriteResolve) {
       const found = message.found || 0;
-      _state.rewriteResolve({ success: true, found, count: _state.applied.size });
+      const count = Array.from(_state.elements.values()).filter(el => el.classList.contains("unbait-replaced")).length;
+      _state.rewriteResolve(result?.error ? { error: result.error } : { success: true, found, count });
       _state.rewriteResolve = null;
     }
     // Update badge with total unbaited on page (incl. cached)
@@ -305,6 +305,7 @@ const CONFIG = {
   CACHE_MAX_AGE_MS: 7 * 24 * 60 * 60 * 1000,
   CACHE_MAX_ENTRIES: 500,
   API_TIMEOUT_MS: 120000,
+  REWRITE_BATCH_SIZE: 5,
   MIN_HEADLINE_LENGTH: 15,
   MAX_HEADLINE_LENGTH: 300,
   MIN_LARGE_LINK_LENGTH: 30,
@@ -345,15 +346,15 @@ async function enrichHeadlinesWithContext(headlines) {
     }
     const batch = headlines.slice(i, i + CONFIG.CONTEXT_CONCURRENCY);
     const promises = batch.map(async (h) => {
+      let tid;
       try {
         const url = new URL(h.url);
         if (url.hostname !== currentHost) return h;
         const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
+        tid = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
         // same-origin credentials + default referrer: a cookie-less fetch with a
         // stripped referrer is the exact crawler fingerprint bot detection keys on
         const resp = await fetch(h.url, { signal: controller.signal, credentials: "same-origin" });
-        clearTimeout(tid);
         if (resp.status === 403 || resp.status === 429 || resp.status === 503) {
           if (Date.now() >= _ctxBlockedUntil) {
             console.debug(`[Unbait] Context: HTTP ${resp.status} from ${currentHost} — pausing context fetches for ${CONFIG.CONTEXT_BLOCK_COOLDOWN_MS / 60000} min`);
@@ -377,6 +378,7 @@ async function enrichHeadlinesWithContext(headlines) {
         reader.cancel();
         return { ...h, context: HtmlExtract.extractContext(html) };
       } catch { return h; }
+      finally { clearTimeout(tid); }
     });
     results.push(...(await Promise.all(promises)));
   }
@@ -458,7 +460,8 @@ function categorizeHeadlines(headlines, cache) {
 /**
  * Send uncached headlines to service worker, handle timeout and responses.
  */
-async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFound) {
+async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFound, hasMore = false) {
+  let timeoutId;
   try {
     console.debug(`[Unbait] Sending ${uncachedData.length} headlines to service worker...`);
 
@@ -471,6 +474,9 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
     try {
       response = await chrome.runtime.sendMessage({
         action: "rewrite-headlines",
+        totalFound,
+        countBefore: cachedCount,
+        hasMore,
         headlines: uncachedData.map((headline) => ({
           ...headline,
           pageLanguage: document.documentElement.lang,
@@ -488,13 +494,12 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
       const result = await Promise.race([
         completePromise,
         new Promise((resolve) =>
-          setTimeout(() => {
+          timeoutId = setTimeout(() => {
             _state.rewriteResolve = null;
-            resolve({ success: true, found: totalFound, count: _state.applied.size });
+            resolve({ error: "Timed out waiting for headlines. Completed titles have been kept." });
           }, CONFIG.API_TIMEOUT_MS)
         ),
       ]);
-      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
       return result;
     }
 
@@ -502,12 +507,10 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
     _state.rewriteResolve = null;
 
     if (!response) {
-      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
-      return { success: true, found: totalFound, count: _state.applied.size };
+      return { error: "No response from Unbait. Completed titles have been kept." };
     }
 
     if (response.error) {
-      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
       return { error: response.error };
     }
 
@@ -528,8 +531,6 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
       await setCacheEntries(newCacheEntries, provider);
     }
 
-    _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
-
     let totalReplaced = 0;
     _state.elements.forEach((el) => {
       if (el.classList.contains("unbait-replaced")) totalReplaced++;
@@ -537,8 +538,13 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
 
     return { success: true, found: totalFound, count: totalReplaced };
   } catch (err) {
-    _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
     return { error: `Fout: ${err.message}` };
+  } finally {
+    clearTimeout(timeoutId);
+    _state.rewriteResolve = null;
+    for (const headline of uncachedData) {
+      _state.elements.get(headline.id)?.classList.remove("unbait-loading");
+    }
   }
 }
 
@@ -563,10 +569,21 @@ async function processHeadlines() {
     return { success: true, found: headlines.length, count: cachedCount, cached: true };
   }
 
-  // Enrich with article context from content script (Safari-compatible)
-  const enriched = await enrichHeadlinesWithContext(uncachedData);
-
-  return fetchAndApplyResults(enriched, provider, cachedCount, headlines.length);
+  // Start rewriting after a small group has context, rather than waiting for
+  // every article on a large homepage. Streamed titles render within each group.
+  let result = { success: true, found: headlines.length, count: cachedCount };
+  try {
+    for (let i = 0; i < uncachedData.length; i += CONFIG.REWRITE_BATCH_SIZE) {
+      const batch = uncachedData.slice(i, i + CONFIG.REWRITE_BATCH_SIZE);
+      const enriched = await enrichHeadlinesWithContext(batch);
+      result = await fetchAndApplyResults(enriched, provider, result.count, headlines.length,
+        i + batch.length < uncachedData.length);
+      if (result.error) break;
+    }
+    return result;
+  } finally {
+    _state.elements.forEach(el => el.classList.remove("unbait-loading"));
+  }
 }
 
 /**

@@ -484,19 +484,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Respond immediately to avoid Safari killing the message channel
     sendResponse({ accepted: true });
 
-    handleRewrite(message.headlines, tabId).then((result) => {
+    handleRewrite(message.headlines, tabId).catch(error => ({ error: error.message })).then((result) => {
       if (result && result.error) {
         _tabStatus.set(tabId, { state: "error", text: result.error });
         updateBadge(tabId, "error");
       } else if (result && result.results) {
         const count = result.results.filter((r) => r.newTitle).length;
+        const totalCount = (message.countBefore || 0) + count;
         _tabStatus.set(tabId, {
-          state: "done",
-          text: "Done!",
-          found: message.headlines.length,
-          count,
+          state: message.hasMore ? "working" : "done",
+          text: message.hasMore ? "Processing more headlines..." : "Done!",
+          found: message.totalFound || message.headlines.length,
+          count: totalCount,
         });
-        updateBadge(tabId, "done", count);
+        updateBadge(tabId, message.hasMore ? "working" : "done", totalCount);
         incrementStats("totalUnbaited", count);
       } else {
         _tabStatus.delete(tabId);
@@ -507,7 +508,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.tabs.sendMessage(tabId, {
           action: "rewrite-complete",
           result,
-          found: message.headlines.length,
+          found: message.totalFound || message.headlines.length,
         }).catch(() => {});
       }
     });
@@ -547,7 +548,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "update-badge-count") {
     const tabId = sender.tab?.id;
-    if (tabId && message.count > 0) {
+    if (tabId && message.count > 0 && !["working", "error"].includes(_tabStatus.get(tabId)?.state)) {
       updateBadge(tabId, "done", message.count);
     }
     return;
@@ -800,12 +801,12 @@ async function enrichWithContext(headlines) {
     }
     const batch = headlines.slice(i, i + CONFIG.CONTEXT_CONCURRENCY);
     const promises = batch.map(async (h) => {
+      let timeoutId;
       try {
         if (ctxHostBlocked(h.url)) return { ...h, context: "" };
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
+        timeoutId = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
         const resp = await fetch(h.url, { signal: controller.signal, credentials: "include", referrer: "" });
-        clearTimeout(timeoutId);
 
         if (resp.status === 403 || resp.status === 429 || resp.status === 503) {
           ctxTripHostBlock(h.url, resp.status);
@@ -836,6 +837,8 @@ async function enrichWithContext(headlines) {
         return { ...h, context };
       } catch {
         return { ...h, context: "" };
+      } finally {
+        clearTimeout(timeoutId);
       }
     });
     results.push(...(await Promise.all(promises)));
@@ -956,17 +959,18 @@ async function readSSEStream(response, extractDelta, tabId, streamAction = "stre
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let fullText = "";
+  let pending = "";
   const sentResults = new Set();
   const allResults = [];
 
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
-
-    const chunk = decoder.decode(value, { stream: true });
-    for (const line of chunk.split("\n")) {
-      if (!line.startsWith("data: ")) continue;
-      const data = line.slice(6);
+    pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
+    const lines = pending.split("\n");
+    pending = done ? "" : lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
       if (data === "[DONE]") continue;
 
       try {
@@ -994,6 +998,7 @@ async function readSSEStream(response, extractDelta, tabId, streamAction = "stre
         // not valid JSON yet, continue
       }
     }
+    if (done) break;
   }
 
   // Final parse of complete text (catch anything missed during streaming)
@@ -1007,6 +1012,10 @@ async function readSSEStream(response, extractDelta, tabId, streamAction = "stre
     for (const result of validated) {
       if (!sentResults.has(result.id)) {
         allResults.push(result);
+        sentResults.add(result.id);
+        if (tabId) {
+          chrome.tabs.sendMessage(tabId, { action: streamAction, result }).catch(() => {});
+        }
       }
     }
   } catch {
@@ -1124,16 +1133,14 @@ async function callClaudeBatched(apiKey, headlines, tabId, mode = "news", stream
 function tryParsePartialResults(text, alreadySent) {
   const results = [];
   // Match complete JSON objects for headline results
-  const regex = /\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"newTitle"\s*:\s*(null|"(?:[^"\\]|\\.)*")\s*\}/g;
+  const regex = /\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*\}/g;
   let match;
 
   while ((match = regex.exec(text)) !== null) {
-    const id = match[1];
-    if (alreadySent.has(id)) continue;
-
-    const rawTitle = match[2];
-    const newTitle = rawTitle === "null" ? null : JSON.parse(rawTitle);
-    results.push({ id, newTitle });
+    try {
+      const [result] = validateResults([JSON.parse(match[0])]);
+      if (result && !alreadySent.has(result.id) && !results.some(r => r.id === result.id)) results.push(result);
+    } catch { /* An incomplete object may occur before a later valid one. */ }
   }
 
   return results;
