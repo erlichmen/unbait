@@ -395,7 +395,7 @@ function getCache(provider) {
 }
 
 function setCacheEntries(entries, provider) {
-  Unbait.setCacheEntries(entries, CACHE_PREFIX, CONFIG.CACHE_MAX_AGE_MS, CONFIG.CACHE_MAX_ENTRIES, provider);
+  return Unbait.setCacheEntries(entries, CACHE_PREFIX, provider);
 }
 
 /**
@@ -408,7 +408,7 @@ async function loadCache(provider) {
   const oldData = await chrome.storage.local.get("unbait_cache");
   if (oldData.unbait_cache && Object.keys(oldData.unbait_cache).length > 0) {
     const oldCache = oldData.unbait_cache;
-    setCacheEntries(
+    await setCacheEntries(
       Object.fromEntries(Object.entries(oldCache).map(([url, entry]) => [url, entry.newTitle])),
       "anthropic"
     );
@@ -524,7 +524,7 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
     }
 
     if (Object.keys(newCacheEntries).length > 0) {
-      setCacheEntries(newCacheEntries, provider);
+      await setCacheEntries(newCacheEntries, provider);
     }
 
     _state.elements.forEach((el) => el.classList.remove("unbait-loading"));

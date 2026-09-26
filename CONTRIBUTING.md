@@ -38,6 +38,8 @@ and prompt-selection checks (no live AI calls). Run `node scripts/test-scan-erro
 to check popup-relative path resolution and scan error handling.
 Run `node scripts/test-article-context.js` to check article extraction beyond
 teaser metadata and long page headers.
+Run `node scripts/test-title-cache.js` to check concurrent tab writes, final-response
+persistence, and cached-title restoration after a refresh without AI calls.
 Build with `python3 scripts/build-firefox.py`, run
 `node scripts/test-firefox-background.js` for the event-page/service-worker boot
 check, then validate the package

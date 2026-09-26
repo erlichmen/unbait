@@ -7,6 +7,35 @@ if (typeof importScripts === "function") {
 // Track active job status per tab
 const _tabStatus = new Map();
 
+// Content scripts in different tabs cannot coordinate read/modify/write cycles.
+// Keep all title-cache writes in this background queue to avoid lost entries.
+let _titleCacheWrites = Promise.resolve();
+function saveTitleCache(entries, prefix, provider) {
+  const write = _titleCacheWrites.catch(() => {}).then(async () => {
+    if (!["unbait_cache_", "unbait_yt_cache_"].includes(prefix)) throw new Error("Invalid title cache");
+    if (!provider) provider = (await chrome.storage.local.get("provider")).provider || "anthropic";
+    if (!["anthropic", "openai", "gemini"].includes(provider)) throw new Error("Invalid provider");
+    const key = `${prefix}${provider}`;
+    const stored = await chrome.storage.local.get(key);
+    const cache = stored[key] || {};
+    const now = Date.now();
+    for (const [url, value] of Object.entries(entries)) {
+      if (!/^https?:\/\//i.test(url)) continue;
+      const newTitle = typeof value === "string" ? value : value?.newTitle;
+      if (typeof newTitle !== "string" || !newTitle) continue;
+      cache[url] = { newTitle, originalTitle: value?.originalTitle, ts: now };
+    }
+    for (const [url, entry] of Object.entries(cache)) {
+      if (now - entry.ts > 7 * 24 * 60 * 60 * 1000) delete cache[url];
+    }
+    const sorted = Object.keys(cache).sort((a, b) => cache[a].ts - cache[b].ts);
+    for (const url of sorted.slice(0, Math.max(0, sorted.length - 500))) delete cache[url];
+    await chrome.storage.local.set({ [key]: cache });
+  });
+  _titleCacheWrites = write;
+  return write;
+}
+
 // Detect Safari (desktop + iOS). Safari's MV3 service workers are killed
 // aggressively after ~5s idle and SSE streaming via ReadableStream is unreliable.
 // We use this flag to fall back to small non-streaming batches.
@@ -370,6 +399,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Verify sender is from our own extension or a valid tab
   if (sender.id !== chrome.runtime.id) return;
 
+  if (message.action === "cache-titles") {
+    saveTitleCache(message.entries, message.prefix, message.provider).then(
+      () => sendResponse({ ok: true }),
+      (error) => sendResponse({ error: error.message })
+    );
+    return true;
+  }
+
   if (message.action === "get-status") {
     const status = _tabStatus.get(message.tabId) || null;
     sendResponse(status);
@@ -708,6 +745,23 @@ async function handleRewrite(headlines, tabId, mode = "news") {
   const streamAction = mode === "youtube" ? "yt-stream-result" : "stream-result";
   const lang = data.summaryLanguage || "auto";
   const result = await callProvider(provider, apiKey, enriched, tabId, mode, streamAction, lang);
+  if (result.results) {
+    const originals = new Map(headlines.map(h => [h.id, h]));
+    const entries = {};
+    for (const item of result.results) {
+      const original = originals.get(item.id);
+      if (original?.url && item.newTitle) {
+        entries[original.url] = { newTitle: item.newTitle, originalTitle: original.text };
+      }
+    }
+    if (Object.keys(entries).length) {
+      try {
+        await saveTitleCache(entries, mode === "youtube" ? "unbait_yt_cache_" : "unbait_cache_", provider);
+      } catch (error) {
+        return { ...result, error: `Could not save rewritten titles: ${error.message}` };
+      }
+    }
+  }
   console.debug(`[Unbait] ${provider} returned:`, result.error || `${result.results?.length || 0} results`);
   return result;
 }
