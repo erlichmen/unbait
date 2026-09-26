@@ -234,7 +234,7 @@ async function restoreCachedTitles() {
       const cached = cache[item.url];
       if (cached && cached.newTitle && Date.now() - cached.ts < CONFIG.CACHE_MAX_AGE_MS) {
         const originalText = cached.originalTitle || item.text;
-        renderReplacedHeadline(item.element, cached.newTitle, originalText);
+        renderReplacedHeadline(item.element, cached.newTitle, originalText, item.url);
         restoredCount++;
       }
     }
@@ -432,6 +432,7 @@ function categorizeHeadlines(headlines, cache) {
   headlines.forEach((item, index) => {
     const id = `headline-${index}`;
     _state.elements.set(id, item.element);
+    item.element.dataset.unbaitUrl = item.url;
     // Only set original if not already stored (defense against race conditions)
     if (!item.element.dataset.unbaitOriginal) {
       item.element.dataset.unbaitOriginal = item.text;
@@ -686,10 +687,10 @@ function setTitleText(el, text) {
 /**
  * Shared rendering logic for replacing a headline with a new title.
  */
-function renderReplacedHeadline(el, newTitle, originalText) {
+function renderReplacedHeadline(el, newTitle, originalText, articleUrl) {
   // Preserve existing original if already set (prevents overwrite on re-render/back-nav)
   const existingOriginal = el.dataset.unbaitOriginal;
-  const url = el.closest("a")?.href || el.querySelector("a")?.href;
+  const url = articleUrl || el.dataset.unbaitUrl || el.closest("a")?.href || el.querySelector("a")?.href;
   const mapOriginal = url && _state.titles.get(url)?.original;
   const trueOriginal = existingOriginal || mapOriginal || originalText;
 
@@ -699,10 +700,10 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   }
 
   el.classList.add("unbait-replaced");
-  el.title = `Origineel: ${trueOriginal}`;
   el.dataset.unbaitOriginal = trueOriginal;
   el.dataset.unbaitNew = newTitle;
   if (url) el.dataset.unbaitUrl = url;
+  setHeadlineTooltip(el, `Original: ${trueOriginal}`);
 
   // Remove ALL existing icons before adding new one (handles edge-case duplicates)
   // Check self, parent (up to 3 levels), and siblings for stale G/U icons
@@ -780,7 +781,7 @@ function applyStreamResult(result) {
   if (applyResult(result)) {
     const el = _state.elements.get(result.id);
     if (el) {
-      const url = el.closest("a")?.href || el.querySelector("a")?.href;
+      const url = el.dataset.unbaitUrl || el.closest("a")?.href || el.querySelector("a")?.href;
       if (url && result.newTitle) {
         const originalTitle = el.dataset.unbaitOriginal || el.textContent;
         setCacheEntries({ [url]: { newTitle: result.newTitle, originalTitle } });
@@ -789,9 +790,27 @@ function applyStreamResult(result) {
   }
 }
 
-/**
- * Toggle between original and new title.
- */
+// Some cards (e.g. Upworthy) put a sibling link over the heading. Give the
+// actual hover target the same native tooltip, without touching category links.
+function setHeadlineTooltip(el, text) {
+  el.title = text;
+  const url = el.dataset.unbaitUrl;
+  if (!url) return;
+  const enclosingLink = el.closest("a");
+  if (enclosingLink?.href === url) {
+    enclosingLink.title = text;
+    return;
+  }
+  for (let node = el, depth = 0; node && depth < 6; node = node.parentElement, depth++) {
+    const links = Array.from(node.querySelectorAll("a[href]")).filter(link => link.href === url);
+    if (links.length) {
+      links.forEach(link => { link.title = text; });
+      break;
+    }
+  }
+}
+
+/** Toggle between original and new title. */
 function toggleTitle(el, icon) {
   // Try data attributes first, fall back to Map (survives React re-renders)
   let original = el.dataset.unbaitOriginal;
@@ -816,13 +835,13 @@ function toggleTitle(el, icon) {
   if (isShowingOriginal) {
     // Show unbait title
     setTitleText(el, rewritten);
-    el.title = `Original: ${original}`;
+    setHeadlineTooltip(el, `Original: ${original}`);
     icon.title = getIconTooltip(false);
     icon.classList.remove("showing-original");
   } else {
     // Show original text
     setTitleText(el, original);
-    el.title = `Unbait: ${rewritten}`;
+    setHeadlineTooltip(el, `Unbait: ${rewritten}`);
     icon.title = getIconTooltip(true);
     icon.classList.add("showing-original");
   }
