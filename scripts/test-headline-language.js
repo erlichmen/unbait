@@ -50,6 +50,13 @@ async function check() {
   }
   const youtube = context.buildPrompts([headline], "youtube");
   assert.match(youtube.systemPrompt, /original title, not the transcript or YouTube interface/);
+  for (const mode of ["news", "youtube"]) {
+    const { systemPrompt } = context.buildPrompts([headline], mode);
+    assert.match(systemPrompt, /Reveal the withheld answer/);
+    assert.match(systemPrompt, /does not contain the answer, return "newTitle": null/);
+    assert.match(systemPrompt, /Never invent missing details/);
+    assert.match(systemPrompt, /Bad: "Expert advises asking two questions/);
+  }
   console.log("PASS: page-language transport, Auto/fallback prompts, and explicit language overrides");
 }
 check().catch(error => { console.error(error); process.exitCode = 1; });

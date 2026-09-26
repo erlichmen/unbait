@@ -104,6 +104,7 @@ Validation:
 node scripts/test-firefox-permissions.js
 node scripts/test-scan-errors.js
 node scripts/test-headline-language.js
+node scripts/test-article-context.js
 python3 scripts/build-firefox.py
 node scripts/test-firefox-background.js
 npx --yes web-ext@9.4.0 lint --source-dir dist/firefox

@@ -22,7 +22,7 @@ const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
 const CONFIG = {
   CONTEXT_CONCURRENCY: 3,
   CONTEXT_TIMEOUT_MS: 6000,
-  CONTEXT_MAX_BYTES: 131072,
+  CONTEXT_MAX_BYTES: 524288,
   CONTEXT_BATCH_DELAY_MS: 400,
   CONTEXT_BLOCK_COOLDOWN_MS: 10 * 60 * 1000,
   MAX_TITLE_LENGTH: 80,
@@ -764,7 +764,7 @@ async function enrichWithContext(headlines) {
           return { ...h, context: "" };
         }
 
-        // Read first ~128KB (enough for <head> + article body)
+        // Read up to ~512KB: large page headers can precede the article body.
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let html = "";
@@ -864,7 +864,23 @@ RULES:
 - Return ONLY valid JSON, no other text.`;
   }
 
-  const userPrompt = `Evaluate and rewrite these ${mode === "youtube" ? "YouTube titles" : "news headlines"}. Return a JSON array with "id" and "newTitle" (null if the title is already good).
+  systemPrompt += `
+
+RESOLVE THE CURIOSITY GAP:
+- Reveal the withheld answer, not just the topic or the fact that an answer exists.
+- Replace "these two questions", "this trick", "the reason", or "what happened next" with the actual questions, method, reason, or outcome supported by the context.
+- A shorter paraphrase that still hides the answer is NOT a successful rewrite.
+- Prioritize the answer over an expert's name or introductory attribution to fit the character limit. Preserve attribution when needed to avoid presenting an opinion or uncertain claim as fact.
+- If the supplied context does not contain the answer, return "newTitle": null. Never invent missing details or use outside knowledge to fill them in.
+- Before returning a title, check: does it tell the reader the promised information without requiring a click? If not, return "newTitle": null.
+
+Example (follow OUTPUT LANGUAGE):
+Headline: "An expert says discipline is not the key to productivity. Ask these two questions."
+Context: "The expert recommends asking why the work matters and who benefits."
+Good: "For productivity, ask why the work matters and who benefits, expert advises"
+Bad: "Expert advises asking two questions instead of relying on discipline"`;
+
+  const userPrompt = `Evaluate and rewrite these ${mode === "youtube" ? "YouTube titles" : "news headlines"}. Return a JSON array with "id" and "newTitle" (null if the title is already good or the context lacks the withheld answer).
 
 OUTPUT LANGUAGE: ${languageRule}
 

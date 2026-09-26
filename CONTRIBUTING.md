@@ -36,6 +36,8 @@ Run `node scripts/test-firefox-permissions.js` for the permission-flow regressio
 check and `node scripts/test-headline-language.js` for page-language transport
 and prompt-selection checks (no live AI calls). Run `node scripts/test-scan-errors.js`
 to check popup-relative path resolution and scan error handling.
+Run `node scripts/test-article-context.js` to check article extraction beyond
+teaser metadata and long page headers.
 Build with `python3 scripts/build-firefox.py`, run
 `node scripts/test-firefox-background.js` for the event-page/service-worker boot
 check, then validate the package
